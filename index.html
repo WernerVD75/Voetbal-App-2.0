@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voetbalscorebord Pro - Wedstrijdblad</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #273138;
+      --card-dark: #1f272c;
+      --accent-gold: #fbc02d;
+    }
+    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 12px; background: var(--bg-dark); color: white; }
+   
+    .card { background: var(--card-dark); padding: 14px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); margin-bottom: 15px; }
+   
+    /* Teams Input & Header */
+    .teams-header { display: flex; gap: 10px; margin-bottom: 10px; }
+    .teams-header input { font-weight: bold; text-align: center; }
+
+    /* Layout in 2 Kolommen */
+    .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 600px) {
+      .two-columns { grid-template-columns: 1fr; }
+    }
+   
+    /* Scorebord Header */
+    .scoreboard { background: #161c20; border: 1px solid #3a4750; text-align: center; border-radius: 12px; padding: 15px; }
+    .teams-display { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: bold; }
+    .score-box { font-size: 34px; color: var(--accent-gold); background: #0f1316; padding: 4px 16px; border-radius: 8px; }
+    .timer-display { font-size: 40px; font-family: monospace; font-weight: bold; margin: 8px 0; color: #00ffcc; }
+   
+    /* Knoppen Grid */
+    .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    button { padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; color: white; }
+    .btn-start { background: #2e7d32; grid-column: span 2; font-size: 15px; }
+    .btn-half { background: #1976d2; }
+    .btn-reset { background: #c62828; }
+    .btn-camera { background: #0288d1; width: 100%; font-size: 13px; margin-bottom: 8px; }
+   
+    .btn-goal { background: #2e7d32; }
+    .btn-geel { background: #fbc02d; color: black; }
+    .btn-rood { background: #c62828; }
+    .btn-wissel { background: #546e7a; }
+    .btn-pdf { background: #d32f2f; width: 100%; font-size: 15px; margin-top: 10px; }
+ 
+    input, select, textarea { padding: 8px; margin: 4px 0; width: 100%; border: 1px solid #3a4750; border-radius: 6px; box-sizing: border-box; background: #2c3840; color: white; font-size: 13px; }
+    textarea { height: 60px; resize: vertical; }
+    input::placeholder, textarea::placeholder { color: #aaa; }
+    label { font-size: 12px; color: #b0bec5; font-weight: bold; }
+
+    /* Match Tijdlijn */
+    .match-timeline-container { position: relative; padding: 20px 0; }
+    .match-timeline-container::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #546e7a;
+      transform: translateX(-50%);
+    }
+ 
+    .timeline-row { display: flex; align-items: center; margin-bottom: 20px; position: relative; width: 100%; }
+    .minute-circle {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 2px solid white;
+      background: var(--bg-dark);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 13px;
+      z-index: 2;
+    }
+ 
+    .event-box { width: 42%; font-size: 13px; line-height: 1.3; }
+    .event-box.thuis { text-align: right; margin-right: auto; padding-right: 15px; }
+    .event-box.uit { text-align: left; margin-left: auto; padding-left: 15px; }
+   
+    .event-title { font-weight: bold; font-size: 14px; }
+    .event-sub { font-size: 12px; color: #b0bec5; }
+    .status-msg { font-size: 11px; color: #00ffcc; text-align: center; margin-top: 4px; }
+  </style>
+</head>
+<body>
+ 
+  <!-- Instellen Team Namen -->
+  <div class="card">
+    <div class="teams-header">
+      <input type="text" id="inputThuis" value="Thuisploeg" onchange="updateTeamNamen()">
+      <input type="text" id="inputUit" value="VC Herentals" onchange="updateTeamNamen()">
+    </div>
+  </div>
+
+  <!-- WEDSTRIJDBLAD SCANNEN & SELECTIES (2 KOLOMMEN) -->
+  <div class="two-columns">
+    <!-- THUISPLOEG -->
+    <div class="card">
+      <h3 style="margin-top:0; font-size: 15px; color: #81c784;" id="titleThuis">Thuisploeg Selectie</h3>
+      <input type="file" id="scanThuisInput" accept="image/*" capture="environment" style="display:none;" onchange="verwerkScan(this, 'Thuis')">
+      <button class="btn-camera" onclick="document.getElementById('scanThuisInput').click()">📷 Scan Wedstrijdblad Thuisploeg</button>
+      <div id="statusThuis" class="status-msg"></div>
+
+      <label>Basisspelers (11):</label>
+      <textarea id="thuisBasis" placeholder="1 speler per regel..." onchange="updateSpelerDropdowns()"></textarea>
+
+      <label>Bankzitters:</label>
+      <textarea id="thuisBank" placeholder="1 speler per regel..." onchange="updateSpelerDropdowns()"></textarea>
+
+      <label>Stafleden:</label>
+      <textarea id="thuisStaf" placeholder="1 staflid per regel..." onchange="updateSpelerDropdowns()"></textarea>
+    </div>
+
+    <!-- BEZOEKERS -->
+    <div class="card">
+      <h3 style="margin-top:0; font-size: 15px; color: #64b5f6;" id="titleUit">VC Herentals Selectie</h3>
+      <input type="file" id="scanUitInput" accept="image/*" capture="environment" style="display:none;" onchange="verwerkScan(this, 'Uit')">
+      <button class="btn-camera" onclick="document.getElementById('scanUitInput').click()">📷 Scan Wedstrijdblad Bezoekers</button>
+      <div id="statusUit" class="status-msg"></div>
+
+      <label>Basisspelers (11):</label>
+      <textarea id="uitBasis" placeholder="1 speler per regel..." onchange="updateSpelerDropdowns()"></textarea>
+
+      <label>Bankzitters:</label>
+      <textarea id="uitBank" placeholder="1 speler per regel..." onchange="updateSpelerDropdowns()"></textarea>
+
+      <label>Stafleden:</label>
+      <textarea id="uitStaf" placeholder="1 staflid per regel..." onchange="updateSpelerDropdowns()"></textarea>
+    </div>
+  </div>
+ 
+  <!-- Scorebord & Klok -->
+  <div class="card scoreboard">
+    <div class="teams-display">
+      <span id="labelThuis">Thuisploeg</span>
+      <span class="score-box"><span id="thuisScore">0</span> - <span id="uitScore">0</span></span>
+      <span id="labelUit">VC Herentals</span>
+    </div>
+    <div class="timer-display" id="timerDisplay">00:00</div>
+   
+    <button class="btn-start" onclick="toggleTimer()" id="startBtn">▶ Start Wedstrijd</button>
+    <div class="button-grid">
+      <button class="btn-half" onclick="setTweedeHelft()">⏩ Naar 2e Helft (45')</button>
+      <button class="btn-reset" onclick="resetTimer()">🔄 Reset Klok</button>
+    </div>
+  </div>
+ 
+  <!-- ACTIE REGISTREREN (2 KOLOMMEN) -->
+  <div class="card">
+    <h3 style="margin-top:0; font-size: 15px;">⚡ Actie Registreren</h3>
+    <div class="two-columns">
+      <!-- THUIS ACTIES -->
+      <div>
+        <h4 style="margin: 5px 0; color: #81c784;" id="actieThuisLabel">Thuisploeg Acties</h4>
+        <label>Basisspeler Actie:</label>
+        <select id="selectThuisBasis"></select>
+        <div class="button-grid">
+          <button class="btn-goal" onclick="registreerActie('Thuis', 'Basis', 'Goal')">⚽ Goal</button>
+          <button class="btn-geel" onclick="registreerActie('Thuis', 'Basis', 'Geel')">🟨 Geel</button>
+          <button class="btn-rood" onclick="registreerActie('Thuis', 'Basis', 'Rood')">🟥 Rood</button>
+          <button class="btn-wissel" onclick="registreerActie('Thuis', 'Basis', 'Wissel')">🔄 Wissel</button>
+        </div>
+
+        <label style="margin-top: 8px; display:block;">Bank & Staf Actie:</label>
+        <select id="selectThuisExtra"></select>
+        <div class="button-grid">
+          <button class="btn-geel" onclick="registreerActie('Thuis', 'Extra', 'Geel')">🟨 Geel</button>
+          <button class="btn-rood" onclick="registreerActie('Thuis', 'Extra', 'Rood')">🟥 Rood</button>
+        </div>
+      </div>
+
+      <!-- BEZOEKERS ACTIES -->
+      <div>
+        <h4 style="margin: 5px 0; color: #64b5f6;" id="actieUitLabel">Bezoekers Acties</h4>
+        <label>Basisspeler Actie:</label>
+        <select id="selectUitBasis"></select>
+        <div class="button-grid">
+          <button class="btn-goal" onclick="registreerActie('Uit', 'Basis', 'Goal')">⚽ Goal</button>
+          <button class="btn-geel" onclick="registreerActie('Uit', 'Basis', 'Geel')">🟨 Geel</button>
+          <button class="btn-rood" onclick="registreerActie('Uit', 'Basis', 'Rood')">🟥 Rood</button>
+          <button class="btn-wissel" onclick="registreerActie('Uit', 'Basis', 'Wissel')">🔄 Wissel</button>
+        </div>
+
+        <label style="margin-top: 8px; display:block;">Bank & Staf Actie:</label>
+        <select id="selectUitExtra"></select>
+        <div class="button-grid">
+          <button class="btn-geel" onclick="registreerActie('Uit', 'Extra', 'Geel')">🟨 Geel</button>
+          <button class="btn-rood" onclick="registreerActie('Uit', 'Extra', 'Rood')">🟥 Rood</button>
+        </div>
+      </div>
+    </div>
+  </div>
+ 
+  <!-- MATCH TIJDLIJN & PDF EXPORT -->
+  <div class="card" id="pdfRapport">
+    <h3 style="margin-top:0; text-align: center; color: var(--accent-gold);">Match Tijdlijn</h3>
+    <div class="match-timeline-container" id="timelineContainer">
+      <!-- Events komen hier dynamisch -->
+    </div>
+  </div>
+ 
+  <div class="card">
+    <button class="btn-pdf" onclick="exporteerPDF()">📄 Exporteer PDF Rapport</button>
+  </div>
+ 
+  <script>
+    let isRunning = false;
+    let startTime = 0;
+    let elapsedTime = 0;
+    let timerInterval = null;
+    let thuisScore = 0, uitScore = 0;
+    let geleKaarten = {};
+    let ocrWorker = null;
+
+    window.onload = async function() {
+      updateTeamNamen();
+
+      // Start Tesseract alvast op de achtergrond (Warm-up)
+      try {
+        ocrWorker = await Tesseract.createWorker('ned');
+      } catch (e) {
+        console.log("OCR achtergrond-initialisatie mislukt:", e);
+      }
+
+      // Herstellen van timer uit localStorage
+      if (localStorage.getItem('scorebord_running') === 'true') {
+        startTime = parseInt(localStorage.getItem('scorebord_startTime'));
+        elapsedTime = parseInt(localStorage.getItem('scorebord_elapsedTime') || 0);
+        isRunning = true;
+        document.getElementById('startBtn').innerText = "⏸ Pauzeer Wedstrijd";
+        timerInterval = setInterval(updateTimerDisplay, 200);
+      } else if (localStorage.getItem('scorebord_elapsedTime')) {
+        elapsedTime = parseInt(localStorage.getItem('scorebord_elapsedTime'));
+        updateTimerDisplay();
+      }
+    };
+ 
+    function updateTeamNamen() {
+      const thuis = document.getElementById('inputThuis').value;
+      const uit = document.getElementById('inputUit').value;
+      
+      document.getElementById('labelThuis').innerText = thuis;
+      document.getElementById('labelUit').innerText = uit;
+      document.getElementById('titleThuis').innerText = thuis + " Selectie";
+      document.getElementById('titleUit').innerText = uit + " Selectie";
+      document.getElementById('actieThuisLabel').innerText = thuis;
+      document.getElementById('actieUitLabel').innerText = uit;
+      
+      updateSpelerDropdowns();
+    }
+
+    // --- AFBEELDING OPTIMALISEREN (VERSNELLING OCR) ---
+    function optimaliseerAfbeelding(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Maximaal 1000px breedte (voldoende scherp voor tekst, maar 90% kleiner bestand)
+            const maxBreedte = 1000;
+            let breedte = img.width;
+            let hoogte = img.height;
+
+            if (breedte > maxBreedte) {
+              hoogte = Math.round((hoogte * maxBreedte) / breedte);
+              breedte = maxBreedte;
+            }
+
+            canvas.width = breedte;
+            canvas.height = hoogte;
+
+            ctx.drawImage(img, 0, 0, breedte, hoogte);
+
+            // Omzetten naar drempelwaarde (zwart-wit) voor maximale OCR snelheid
+            const imgData = ctx.getImageData(0, 0, breedte, hoogte);
+            const data = imgData.data;
+            for (let i = 0; i < data.length; i += 4) {
+              const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+              const v = avg > 120 ? 255 : 0;
+              data[i] = v;     // R
+              data[i + 1] = v; // G
+              data[i + 2] = v; // B
+            }
+            ctx.putImageData(imgData, 0, 0);
+
+            resolve(canvas.toDataURL('image/jpeg', 0.8));
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // --- GEOPTIMALISEERDE OCR WEDSTRIJDBLAD SCANNER ---
+    async function verwerkScan(input, team) {
+      if (!input.files || !input.files[0]) return;
+      
+      const statusEl = document.getElementById(team === 'Thuis' ? 'statusThuis' : 'statusUit');
+      statusEl.innerText = "⚡ Foto optimaliseren...";
+
+      try {
+        // 1. Snelle pre-processing van de afbeelding
+        const geoptimaliseerdeImg = await optimaliseerAfbeelding(input.files[0]);
+        statusEl.innerText = "⏳ Tekst herkennen...";
+
+        // 2. Herkenning uitvoeren
+        let text = "";
+        if (ocrWorker) {
+          const ret = await ocrWorker.recognize(geoptimaliseerdeImg);
+          text = ret.data.text;
+        } else {
+          const ret = await Tesseract.recognize(geoptimaliseerdeImg, 'ned');
+          text = ret.data.text;
+        }
+
+        statusEl.innerText = "✅ Scan voltooid!";
+
+        // 3. Verwerken en indelen van de gescande regels
+        const regels = text.split('\n').map(r => r.trim()).filter(r => r.length > 2);
+        let basis = [], bank = [], staf = [];
+        let huidigeSectie = 'basis';
+
+        regels.forEach(regel => {
+          const lRegel = regel.toLowerCase();
+          if (lRegel.includes('bank') || lRegel.includes('reserve') || lRegel.includes('wissel')) {
+            huidigeSectie = 'bank';
+            return;
+          }
+          if (lRegel.includes('staf') || lRegel.includes('trainer') || lRegel.includes('coach') || lRegel.includes('deleg')) {
+            huidigeSectie = 'staf';
+            return;
+          }
+
+          if (huidigeSectie === 'basis') {
+            if (basis.length < 11) basis.push(regel);
+            else bank.push(regel);
+          } else if (huidigeSectie === 'bank') {
+            bank.push(regel);
+          } else if (huidigeSectie === 'staf') {
+            staf.push(regel);
+          }
+        });
+
+        const prefix = team === 'Thuis' ? 'thuis' : 'uit';
+        document.getElementById(prefix + 'Basis').value = basis.join('\n');
+        document.getElementById(prefix + 'Bank').value = bank.join('\n');
+        document.getElementById(prefix + 'Staf').value = staf.join('\n');
+
+        updateSpelerDropdowns();
+      } catch (err) {
+        statusEl.innerText = "❌ Fout bij scannen van afbeelding.";
+        console.error(err);
+      }
+    }
+
+    // --- DROPDOWNS BIJWERKEN ---
+    function updateSpelerDropdowns() {
+      vullDropdown('thuisBasis', 'thuisBank', 'thuisStaf', 'selectThuisBasis', 'selectThuisExtra');
+      vullDropdown('uitBasis', 'uitBank', 'uitStaf', 'selectUitBasis', 'selectUitExtra');
+    }
+
+    function vullDropdown(basisId, bankId, stafId, selectBasisId, selectExtraId) {
+      const basis = document.getElementById(basisId).value.split('\n').filter(s => s.trim() !== '');
+      const bank = document.getElementById(bankId).value.split('\n').filter(s => s.trim() !== '');
+      const staf = document.getElementById(stafId).value.split('\n').filter(s => s.trim() !== '');
+
+      const selBasis = document.getElementById(selectBasisId);
+      const selExtra = document.getElementById(selectExtraId);
+
+      selBasis.innerHTML = basis.map(s => `<option value="${s.trim()}">${s.trim()}</option>`).join('');
+      if (basis.length === 0) selBasis.innerHTML = '<option value="">-- Geen basisspelers --</option>';
+
+      let extraHtml = '';
+      if (bank.length > 0) {
+        extraHtml += '<optgroup label="Bankzitters">';
+        bank.forEach(s => extraHtml += `<option value="${s.trim()} (Bank)">${s.trim()}</option>`);
+        extraHtml += '</optgroup>';
+      }
+      if (staf.length > 0) {
+        extraHtml += '<optgroup label="Stafleden">';
+        staf.forEach(s => extraHtml += `<option value="${s.trim()} (Staf)">${s.trim()}</option>`);
+        extraHtml += '</optgroup>';
+      }
+      if (!extraHtml) extraHtml = '<option value="">-- Geen bank/staf --</option>';
+
+      selExtra.innerHTML = extraHtml;
+    }
+
+    // --- KLOK LOGICA ---
+    function toggleTimer() {
+      const btn = document.getElementById('startBtn');
+      if (isRunning) {
+        clearInterval(timerInterval);
+        elapsedTime += Date.now() - startTime;
+        isRunning = false;
+        btn.innerText = "▶ Hervat Wedstrijd";
+        localStorage.setItem('scorebord_running', 'false');
+        localStorage.setItem('scorebord_elapsedTime', elapsedTime);
+      } else {
+        startTime = Date.now();
+        isRunning = true;
+        btn.innerText = "⏸ Pauzeer Wedstrijd";
+        localStorage.setItem('scorebord_running', 'true');
+        localStorage.setItem('scorebord_startTime', startTime);
+        timerInterval = setInterval(updateTimerDisplay, 200);
+      }
+    }
+ 
+    function setTweedeHelft() {
+      elapsedTime = 45 * 60 * 1000;
+      startTime = Date.now();
+      localStorage.setItem('scorebord_elapsedTime', elapsedTime);
+      if (isRunning) localStorage.setItem('scorebord_startTime', startTime);
+      updateTimerDisplay();
+    }
+ 
+    function resetTimer() {
+      if (confirm("Klok en gegevens resetten?")) {
+        clearInterval(timerInterval);
+        isRunning = false;
+        elapsedTime = 0;
+        thuisScore = 0; uitScore = 0;
+        document.getElementById('thuisScore').innerText = 0;
+        document.getElementById('uitScore').innerText = 0;
+        document.getElementById('timelineContainer').innerHTML = '';
+        localStorage.clear();
+        document.getElementById('startBtn').innerText = "▶ Start Wedstrijd";
+        updateTimerDisplay();
+      }
+    }
+ 
+    function updateTimerDisplay() {
+      let totalMs = elapsedTime + (isRunning ? (Date.now() - startTime) : 0);
+      const totalSeconds = Math.floor(totalMs / 1000);
+      const min = Math.floor(totalSeconds / 60);
+      const sec = totalSeconds % 60;
+      document.getElementById('timerDisplay').innerText = `${min < 10 ? '0'+min : min}:${sec < 10 ? '0'+sec : sec}`;
+    }
+
+    // --- ACTIE REGISTRATIE ---
+    function registreerActie(team, categorie, type) {
+      const selectId = (team === 'Thuis') ? 
+        (categorie === 'Basis' ? 'selectThuisBasis' : 'selectThuisExtra') : 
+        (categorie === 'Basis' ? 'selectUitBasis' : 'selectUitExtra');
+
+      const persoon = document.getElementById(selectId).value;
+      if (!persoon) {
+        alert("Selecteer eerst een persoon!");
+        return;
+      }
+
+      const teamNaam = team === 'Thuis' ? document.getElementById('inputThuis').value : document.getElementById('inputUit').value;
+
+      let totalMs = elapsedTime + (isRunning ? (Date.now() - startTime) : 0);
+      const min = Math.floor(totalMs / 60000);
+
+      let titel = "";
+      let sub = "";
+
+      if (type === 'Goal') {
+        if (team === 'Thuis') thuisScore++; else uitScore++;
+        document.getElementById('thuisScore').innerText = thuisScore;
+        document.getElementById('uitScore').innerText = uitScore;
+        titel = `Doelpunt ⚽`;
+        sub = `${persoon} (${teamNaam})`;
+      } 
+      else if (type === 'Geel') {
+        geleKaarten[persoon] = (geleKaarten[persoon] || 0) + 1;
+        if (geleKaarten[persoon] === 2) {
+          titel = `🟨 2x Geel = 🟥 ROOD`;
+          sub = `${persoon} (${teamNaam})`;
+          alert(`${persoon} heeft 2x geel gekregen en moet het veld/de bank verlaten!`);
+        } else {
+          titel = `Gele kaart 🟨`;
+          sub = `${persoon} (${teamNaam})`;
+        }
+      } 
+      else if (type === 'Rood') {
+        titel = `Rode kaart 🟥`;
+        sub = `${persoon} (${teamNaam})`;
+        alert(`${persoon} krijgt ROOD!`);
+      } 
+      else if (type === 'Wissel') {
+        const bankSelect = document.getElementById(team === 'Thuis' ? 'selectThuisExtra' : 'selectUitExtra');
+        const inSpeler = bankSelect.value;
+        titel = `Wissel 🔄`;
+        sub = `UIT: ${persoon} ➔ IN: ${inSpeler || 'Wisselspeler'} (${teamNaam})`;
+      }
+
+      voegVisueleTijdlijnToe(min, titel, sub, team === 'Thuis');
+    }
+ 
+    function voegVisueleTijdlijnToe(minuut, titel, sub, isThuis) {
+      const container = document.getElementById('timelineContainer');
+ 
+      const row = document.createElement('div');
+      row.className = 'timeline-row';
+ 
+      const circle = document.createElement('div');
+      circle.className = 'minute-circle';
+      circle.innerText = `${minuut}'`;
+ 
+      const eventBox = document.createElement('div');
+      eventBox.className = `event-box ${isThuis ? 'thuis' : 'uit'}`;
+      eventBox.innerHTML = `<div class="event-title">${titel}</div><div class="event-sub">${sub}</div>`;
+ 
+      row.appendChild(circle);
+      row.appendChild(eventBox);
+     
+      // Nieuwste event bovenaan toevoegen
+      container.prepend(row);
+    }
+
+    // --- PDF EXPORT ---
+    function exporteerPDF() {
+      const element = document.getElementById('pdfRapport');
+      html2pdf().set({
+        margin: 0.3,
+        filename: 'Wedstrijd_Tijdlijn.pdf',
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+      }).from(element).save();
+    }
+ // AUTOMATISCHE OFFLINE BEWAREN
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const swCode = `
+                    const CACHE = 'wf-cache-v1';
+                    self.addEventListener('install', e => {
+                        e.waitUntil(caches.open(CACHE).then(c => c.add(location.href)));
+                        self.skipWaiting();
+                    });
+                    self.addEventListener('activate', e => self.clients.claim());
+                    self.addEventListener('fetch', e => {
+                        e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+                    });
+                `;
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl).catch(() => {});
+            });
+        }
+ </script>
+</body>
+</html>
